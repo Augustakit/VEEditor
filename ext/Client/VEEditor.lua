@@ -13,7 +13,7 @@ function VEEditor:__init()
 end
 
 function VEEditor:RegisterVars()
-	self.m_SupportedTypes = {"Vec2", "Vec3", "Vec4", "Float32", "Boolean", "Int"}
+	self.m_SupportedTypes = {"Vec2", "Vec3", "Vec4", "Float32", "Boolean", "Int","String"}
 	self.m_SupportedClasses = {
 		"CameraParams",
 		"CharacterLighting",
@@ -34,14 +34,15 @@ function VEEditor:RegisterVars()
 		"SunFlare",
 		"Tonemap",
 		"Vignette",
-		"Wind"
+		"Wind",
+		"ShaderParams"
 	}
 
 	self.m_CineState = nil
 	self.m_DefaultState = nil
 	self.m_CineVE = nil
 	self.m_CineEntityGUID = nil
-	self.m_CinePriority = 10000010
+	self.m_CinePriority = 10
 	self.m_PresetName = nil
 	self.m_PresetPriority = nil
 	self.m_CollaborationEnabled = false
@@ -64,7 +65,7 @@ end
 
 function VEEditor:OnPresetsLoaded()
 	Events:Dispatch("VEManager:EnablePreset", "EditorLayer")
-	Events:Dispatch("VEManager:RequestVEGuid", "EditorLayer")
+	Events:Dispatch("VEManager:VEGuidRequest", "EditorLayer")
 
 	if VEE_CONFIG.SHOW_EDITOR_ON_LEVEL_LOAD then
 		self:ShowUI()
@@ -75,6 +76,13 @@ function VEEditor:OnPresetsLoaded()
 	-- Get CineState & Default State
 	if self.m_CineState == nil then
 		self.m_CineState = self:GetVisualEnvironmentState(self.m_CinePriority)
+
+		--✅ Add nil check
+		if self.m_CineState == nil then
+			m_Logger:Warning('CineState not found, will retry on first callback')
+			return  -- Return early to avoid subsequent code accessing nil
+		end
+
 		m_Logger:Write('CineState Name: ' .. self.m_CineState.entityName)
 		m_Logger:Write('CineState ID: ' .. self.m_CineState.stateId)
 		m_Logger:Write('CineState Priority: ' .. self.m_CineState.priority)
@@ -95,15 +103,19 @@ function VEEditor:OnDataFromServer(p_Path, p_Value, p_Net)
 end
 
 function VEEditor:ShowUI()
-	Events:Dispatch("VEManager:UpdateVisibility", "EditorLayer", 1.0)
+	Events:Dispatch("VEManager:SetVisibility", "EditorLayer", 1.0)
 	DebugGUI:ShowUI()
 	self.m_Visible = true
+	m_Logger:Write("Showing EditorLayer and UI")
 end
 
 function VEEditor:HideUI()
-	Events:Dispatch("VEManager:UpdateVisibility", "EditorLayer", 0.0)
+    -- If you want to still see the map's original environment after closing the UI, adjust the number after it to as small as possible. If you want it to be the same as the current preset environment after pressing F8, keep it at 1.0.
+    --Events:Dispatch("VEManager:SetVisibility", "EditorLayer", 1.0)	
+	Events:Dispatch("VEManager:SetVisibility", "EditorLayer", 1.0)
 	DebugGUI:HideUI()
 	self.m_Visible = false
+	m_Logger:Write("Hiding EditorLayer and UI")
 end
 
 function VEEditor:GenericSeperator(p_Str, p_Sep)
@@ -144,6 +156,13 @@ end
 function VEEditor:GenericCallback(p_Path, p_Value, p_Net)
 	if self.m_CineState == nil or self.m_CineStateReloaded then
 		self.m_CineState = self:GetVisualEnvironmentState(self.m_CinePriority)
+
+	--✅ Add nil check
+	if self.m_CineState == nil then
+		m_Logger:Warning('CineState not available yet, skipping callback for: ' .. tostring(p_Path))
+		return  -- Return early to avoid subsequent code accessing nil
+	end
+
 		m_Logger:Write('CineState Name: ' .. self.m_CineState.entityName)
 		m_Logger:Write('CineState ID: ' .. self.m_CineState.stateId)
 		m_Logger:Write('CineState Priority: ' .. self.m_CineState.priority)
@@ -273,6 +292,32 @@ function VEEditor:CreateGUI()
 		end)
 
 	end)
+
+
+    -- Shader Params
+    DebugGUI:Folder('Shader Params', function()
+
+		DebugGUI:Text('Parameter Name', 'FLIRData', function(p_ParameterName)
+            self:GenericCallback('shaderParams.parameterName', p_ParameterName)
+        end)
+
+	    DebugGUI:Range('ShaderParams X', {DefValue = 0.3, Min = 0.0, Max = 6, Step = self.VALUE_STEP}, function(p_Value)
+		    self:GenericCallback('shaderParams.x', p_Value)
+	    end)
+
+	    DebugGUI:Range('ShaderParams Y', {DefValue = 0.3, Min = 0.0, Max = 6, Step = self.VALUE_STEP}, function(p_Value)
+		    self:GenericCallback('shaderParams.y', p_Value)
+	    end)
+
+	    DebugGUI:Range('ShaderParams Z', {DefValue = 0.3, Min = 0.0, Max = 6, Step = self.VALUE_STEP}, function(p_Value)
+		    self:GenericCallback('shaderParams.z', p_Value)
+	    end)
+
+	    DebugGUI:Range('ShaderParams W', {DefValue = 0.3, Min = 0.0, Max = 6, Step = self.VALUE_STEP}, function(p_Value)
+		    self:GenericCallback('shaderParams.w', p_Value)
+	    end)
+
+    end)
 
 	-- Sun Flare
 	DebugGUI:Folder("Sun Flare", function ()
@@ -551,6 +596,7 @@ function VEEditor:CreateGUI()
 
 	end)
 
+
 	-- Color Correction
 	DebugGUI:Folder("Color Correction", function ()
 
@@ -558,48 +604,48 @@ function VEEditor:CreateGUI()
 			self:GenericCallback("colorCorrection.enable", p_Value)
 		end)
 
-		DebugGUI:Checkbox('Color Grading Enable', false, function(p_Value)
+ 		DebugGUI:Checkbox('Color Grading Enable', false, function(p_Value)
 			--self:GenericCallback("colorCorrection.colorGradingEnable", p_Value)
 			NetEvents:Send('VEEditor:ColorCorrection', p_Value)
-		end)
+ 		end)
 
-		DebugGUI:Range('Brightness Red', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Brightness Red', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.brightness.x", p_Value)
 		end)
 
-		DebugGUI:Range('Brightness Green', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Brightness Green', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.brightness.y", p_Value)
 		end)
 
-		DebugGUI:Range('Brightness Blue', {DefValue = 1, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Brightness Blue', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.brightness.z", p_Value)
 		end)
 
-		DebugGUI:Range('Contrast Red', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Contrast Red', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.contrast.x", p_Value)
 		end)
 
-		DebugGUI:Range('Contrast Green', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Contrast Green', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.contrast.y", p_Value)
 		end)
 
-		DebugGUI:Range('Contrast Blue', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Contrast Blue', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.contrast.z", p_Value)
 		end)
 
-		DebugGUI:Range('Saturation Red', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Saturation Red', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.saturation.x", p_Value)
 		end)
 
-		DebugGUI:Range('Saturation Green', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Saturation Green', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.saturation.y", p_Value)
 		end)
 
-		DebugGUI:Range('Saturation Blue', {DefValue = 1.0, Min = 0.0, Max = 1.5, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Saturation Blue', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.saturation.z", p_Value)
 		end)
 
-		DebugGUI:Range('Hue', {DefValue = 0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Hue', {DefValue = 1.0, Min = 0.0, Max = 2, Step = 0.001}, function(p_Value)
 			self:GenericCallback("colorCorrection.hue", p_Value)
 		end)
 
@@ -657,82 +703,113 @@ function VEEditor:CreateGUI()
 	-- Fog
 	DebugGUI:Folder("Fog", function ()
 
-		DebugGUI:Range('Fog Start', {DefValue = 0.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Checkbox('Enable', true, function(p_Value)
+			self:GenericCallback("fog.enable", p_Value)
+		end)
+
+		DebugGUI:Checkbox('Fog Gradient Enable', true, function(p_Value)
+			self:GenericCallback("fog.fogGradientEnable", p_Value)
+		end)
+
+		DebugGUI:Range('Fog Start', {DefValue = 0.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.start", p_Value)
 		end)
 
-		DebugGUI:Range('Fog End', {DefValue = 5000.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog End', {DefValue = 2000.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.endValue", p_Value)
 		end)
 
-		DebugGUI:Range('Curve X', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Curve X', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.curve.x", p_Value)
 		end)
 
-		DebugGUI:Range('Curve Y', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Curve Y', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.curve.y", p_Value)
 		end)
 
-		DebugGUI:Range('Curve Z', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Curve Z', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.curve.z", p_Value)
 		end)
 
-		DebugGUI:Range('Curve W', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Curve W', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.curve.w", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Distance Multiplier [doesn´t work on all maps]', {DefValue = 1.0, Min = 0.0, Max = 5.0, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Distance Multiplier [doesn´t work on all maps]', {DefValue = 1.0, Min = 0.0, Max = 5.0, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.fogDistanceMultiplier", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Transparency Fade Start', {DefValue = 25.0, Min = 0.0, Max = 5000.0, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Transparency Fade Start', {DefValue = 25.0, Min = 0.0, Max = 5000.0, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.transparencyFadeStart", p_Value)
 		end)
 
-		DebugGUI:Range('Transparency Fade Clamp', {DefValue = 1.0, Min = 0.0, Max = 1.0, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Transparency Fade Clamp', {DefValue = 1.0, Min = 0.0, Max = 1.0, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.transparencyFadeClamp", p_Value)
 		end)
 
-		DebugGUI:Range('Transparency Fade End', {DefValue = 100.0, Min = 0.0, Max = 5000.0, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Transparency Fade End', {DefValue = 100.0, Min = 0.0, Max = 5000.0, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.transparencyFadeEnd", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Start', {DefValue = 0.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Checkbox('Fog Color Enable', true, function(p_Value)
+			self:GenericCallback("fog.fogColorEnable", p_Value)
+		end)
+
+		DebugGUI:Range('Fog Color Start', {DefValue = 0.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.fogColorStart", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color End', {DefValue = 10000.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color End', {DefValue = 2000.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 1}, function(p_Value)
 			self:GenericCallback("fog.fogColorEnd", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Red', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Red', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColor.x", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Green', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Green', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColor.y", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Blue', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Blue', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColor.z", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Curve X', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Curve X', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColorCurve.x", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Curve Y', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Curve Y', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColorCurve.y", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Curve Z', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Curve Z', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColorCurve.z", p_Value)
 		end)
 
-		DebugGUI:Range('Fog Color Curve W', {DefValue = 1.0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+		DebugGUI:Range('Fog Color Curve W', {DefValue = 1.0, Min = -10, Max = 10, Step = 0.001}, function(p_Value)
 			self:GenericCallback("fog.fogColorCurve.w", p_Value)
 		end)
 
+		DebugGUI:Checkbox('Height Fog Enable', false, function(p_Value)
+			self:GenericCallback("fog.heightFogEnable", p_Value)
+		end)
+
+		DebugGUI:Range('Height Fog Follow Camera', {DefValue = 0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("fog.heightFogFollowCamera", p_Value)
+		end)
+
+		DebugGUI:Range('Height Fog Altitude', {DefValue = 0, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("fog.heightFogAltitude", p_Value)
+		end)
+
+		DebugGUI:Range('Height Fog Depth', {DefValue = 100, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("fog.heightFogDepth", p_Value)
+		end)
+
+		DebugGUI:Range('Height Fog Visibility Range', {DefValue = 100, Min = self.VALUE_MIN, Max = self.VALUE_MAX, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("fog.heightFogVisibilityRange", p_Value)
+		end)
 	end)
 
 	-- Wind
@@ -757,6 +834,10 @@ function VEEditor:CreateGUI()
 
 		DebugGUI:Range('Blur Filter', {DefValue = 6, Min = 0, Max = 6, Step = 1}, function(p_Value)
 			self:GenericCallback("dof.blurFilter", p_Value)
+		end)
+
+		DebugGUI:Range('Blur Filter Deviation', {DefValue = 0, Min = 0, Max = 10, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("dof.blurFilterDeviation", p_Value)
 		end)
 
 		DebugGUI:Range('Scale', {DefValue = 100.0, Min = 0.0, Max = 500.0, Step = self.VALUE_STEP}, function(p_Value)
@@ -1025,6 +1106,26 @@ function VEEditor:CreateGUI()
 	-- Ambient Occlusion
 	DebugGUI:Folder('Ambient Occlusion', function ()
 
+		DebugGUI:Checkbox('Enable', true, function(p_Value)
+			self:GenericCallback("dynamicAO.enable", p_Value)
+		end)
+
+		DebugGUI:Range('SSAO Fade', {DefValue = 0, Min = 0.0, Max = 10.0, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("dynamicAO.ssaoFade", p_Value)
+		end)
+
+		DebugGUI:Range('SSAO Radius', {DefValue = 0, Min = 0.0, Max = 10.0, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("dynamicAO.ssaoRadius", p_Value)
+		end)
+
+		DebugGUI:Range('SSAO MaxDistanceInner', {DefValue = 0, Min = 0.0, Max = 10.0, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("dynamicAO.ssaoMaxDistanceInner", p_Value)
+		end)
+
+		DebugGUI:Range('SSAO MaxDistanceOuter', {DefValue = 0, Min = 0.0, Max = 10.0, Step = self.VALUE_STEP}, function(p_Value)
+			self:GenericCallback("dynamicAO.ssaoMaxDistanceOuter", p_Value)
+		end)
+
 		DebugGUI:Range('HBAO Radius', {DefValue = 0, Min = 0.0, Max = 10.0, Step = self.VALUE_STEP}, function(p_Value)
 			self:GenericCallback("dynamicAO.hbaoRadius", p_Value)
 		end)
@@ -1173,12 +1274,12 @@ function VEEditor:CreateGUI()
 
 		DebugGUI:Text('Load Preset', 'Insert JSON String here', function(p_Preset)
 			local s_Decoded = json.decode(p_Preset)
-			Events:Dispatch('VEManager:DestroyVE', 'EditorLayer')
-			s_Decoded.Name = "EditorLayer"
+			s_Decoded.Name = "NVG"
 			s_Decoded.Priority = 10
-			Events:Dispatch('VEManager:ReplaceVE', 'EditorLayer', s_Decoded)
+			Events:Dispatch('VEManager:ReplaceVE', 'NVG', s_Decoded)
 			Events:Dispatch('VEManager:Reinitialize')
 			self.m_CineStateReloaded = true
+			self.m_CineState = nil  -- 强制重新获取
 		end)
 
 		DebugGUI:Checkbox('Enable Collaboration Mode', false, function(p_Value)
